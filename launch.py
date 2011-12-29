@@ -7,7 +7,7 @@ import warnings
 from novaclient.v1_1 import client
 
 
-def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=1):
+def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=60):
     """launch and terminate a VM within a specified time"""
 
     nc = client.Client(user, password, tenant, auth_url)
@@ -42,16 +42,14 @@ def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=1):
 
     booted = False
     boot_start = time.time()
-    success_msgs = ['cloud-init boot finished']
+    success_msg = 'cloud-init boot finished'
 
     while not booted and time.time() - boot_start < boot_time:
         console_output = nc.servers.get_console_output(server_id)
-        for success_msg in success_msgs:
-            if success_msg in console_output:
-                booted = True
+        if success_msg in console_output:
+            booted = True
         time.sleep(3)
     if not booted: sys.stderr.write("Server %s not booted within %d sec" % (name, boot_time));
-    else: print "booted";
 
     nc.servers.delete(server_id)
 
