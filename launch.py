@@ -3,10 +3,11 @@
 import random
 import sys
 import time
+import warnings
 from novaclient.v1_1 import client
 
 
-def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=60):
+def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=1):
     """launch and terminate a VM within a specified time"""
 
     nc = client.Client(user, password, tenant, auth_url)
@@ -49,8 +50,8 @@ def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=60):
             if success_msg in console_output:
                 booted = True
         time.sleep(3)
-    assert booted, "Server %s not booted within %d sec" % (name, boot_time)
-    print "booted"
+    if not booted: sys.stderr.write("Server %s not booted within %d sec" % (name, boot_time));
+    else: print "booted";
 
     nc.servers.delete(server_id)
 
