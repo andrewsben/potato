@@ -3,7 +3,6 @@
 import random
 import sys
 import time
-import warnings
 from novaclient.v1_1 import client
 
 
@@ -49,18 +48,20 @@ def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=60):
         if success_msg in console_output:
             booted = True
         time.sleep(3)
-    if not booted: sys.stderr.write("Server %s not booted within %d sec" % (name, boot_time));
 
     nc.servers.delete(server_id)
-
+    is_del = False
     start = time.time()
-    while time.time() - start < destroy_time:
+
+    while not is_del and time.time() - start < destroy_time:
         if not any([s.id == server_id for s in nc.servers.list()]):
-            return
+            is_del = True
         time.sleep(1)
 
-    assert None, "Server %s not deleted within %d sec" % (name, destroy_time)
-
+    if not booted and not is_del:
+        print "Server %s not booted within %d sec" % (name, boot_time)
+    assert is_del, "Server %s not deleted within %d sec" % (name, destroy_time)
+    assert booted, "Server %s not booted within %d sec" % (name, boot_time)
 
 if __name__ == '__main__':
     try:
