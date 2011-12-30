@@ -47,7 +47,8 @@ def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=60):
         console_output = nc.servers.get_console_output(server_id)
         if success_msg in console_output:
             booted = True
-        time.sleep(3)
+        else:
+            time.sleep(3)
 
     nc.servers.delete(server_id)
     is_del = False
@@ -56,7 +57,8 @@ def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=60):
     while not is_del and time.time() - start < destroy_time:
         if not any([s.id == server_id for s in nc.servers.list()]):
             is_del = True
-        time.sleep(1)
+        else:
+            time.sleep(1)
 
     if not booted and not is_del:
         print "Server %s not booted within %d sec" % (name, boot_time)
