@@ -1,25 +1,23 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
-import ConfigParser
-import novaclient
 import random
 import sys
 import time
 from novaclient.v1_1 import client
 
 
-def ConfigSectionMap(section):
-    dict1 = {}
-    options = Config.options(section)
-    for option in options:
-        try:
-            dict1[option] = Config.get(section, option)
-            if dict1[option] == -1:
-                DebugPrint("skip: %s" % option)
-        except:
-            print("exception on %s!" % option)
-            dict1[option] = None
-    return dict1
+def returnNovaObject(url, tenant, user, password):
+    try:
+        novaobject = client.Client(user, password, tenant, url)
+        return novaobject
+    except:
+        assert None, "Unable to create nova client"
+
+
+def get_image(image_name):
+    for i in novaobject.images.list():
+        if i.name == image_name:
+            return i
 
 
 def returnServerStatus(server):
@@ -35,7 +33,7 @@ def returnServerStatus(server):
         return status
 
 
-def returnRandom(whatToRandomize, idonly=0):
+def returnRandom(whatToRandomize, idonly=0, max_cores=8):
     def randomize(list):
         return list[(random.randint(0, len(list) - 1))]
 
@@ -52,10 +50,11 @@ def returnRandom(whatToRandomize, idonly=0):
             return randomize(novaobject.servers.list())
 
     elif whatToRandomize == "flavor":
+        flavas = [f for f in novaobject.flavors.list() if f.vcpus <= max_cores]
         if idonly == 1:
-            return randomize(novaobject.flavors.list()).id
+            return random.choice(flavas).id
         else:
-            return randomize(novaobject.flavors.list())
+            return random.choice(flavas)
 
     elif whatToRandomize == "floating_ip":
         if idonly == 1:
@@ -120,15 +119,19 @@ def shutdownInstances():
         return 0, except_msg
 
 
-def startServer():
+def runServerThroughTests():
+
     def bootRandomInstance():
         try:
             randomName = "test-%d-%d" % (time.time(), random.randint(0, 99999))
+            image = get_image('oneiric-server-cloudimg-amd64')
+            assert image, "No image found"
+            print image
             novaobject.servers.create(
-                        image=returnRandom('image', 1),
-                        flavor=returnRandom('flavor', 1),
+                        image=image,
+                        flavor=returnRandom('flavor', 1, max_cores=4),
                         name=randomName)
-            print "Booted server %s" % randomName
+            print "Started server %s" % randomName
             server = getServerObjectFromName(randomName)
             if server:
                 while len(server.networks) == 0:
@@ -146,51 +149,51 @@ def startServer():
             quota_exceeded += "more instances of this type. "
             quota_exceeded += "(HTTP 413)"
             if str(except_msg) == "This request was rate-limited. (HTTP 413)":
-                print "rate limited, sleeping now"
-                time.sleep(10)
+                assert None, "rate limited"
             elif str(except_msg) == quota_exceeded:
-                shutdownInstances()
+                assert None, "Quota exceeded"
             else:
                 print str(except_msg)
             return False, except_msg
 
-    def pauseInstance(server):
-        try:
-            server.pause()
-            while returnServerStatus(server) == 'ACTIVE':
-                time.sleep(2)
-            print "Paused"
-            return True, "success"
-        except Exception as except_msg:
-            return False, except_msg
+    def checkBooted(server):
+        boot_time = 60
+        booted = False
+        boot_start = time.time()
+        success_msg = 'cloud-init boot finished'
 
-    def unpauseInstance(server):
-        try:
-            server.unpause()
-            while returnServerStatus(server) != 'ACTIVE':
-                time.sleep(2)
-            print "Unpaused"
-            return True, "success"
-        except Exception as except_msg:
-            return False, except_msg
+        while not booted and time.time() - boot_start < boot_time:
+            console_output = novaobject.servers.get_console_output(server.id)
+            if success_msg in console_output:
+                booted = True
+            time.sleep(3)
+        print booted and "Boot successful" or "Boot failed"
+        return booted, booted and '' or \
+                    "Server not booted within %d sec" % (boot_time)
 
-    def suspendInstance(server):
-        try:
-            server.suspend()
-            while returnServerStatus(server) != 'SUSPENDED':
-                time.sleep(2)
-            print "Suspended"
-            return True, "success"
-        except Exception as except_msg:
-            return False, except_msg
+    def actions(action, expected_state, server, time_limit=60):
+        action_done = False
+        action_start = time.time()
 
-    def resumeInstance(server):
         try:
-            server.resume()
-            while returnServerStatus(server) != 'ACTIVE':
-                time.sleep(2)
-            print "Resumed"
-            return True, "success"
+            if action == "pause":
+                server.pause()
+            elif action == "unpause":
+                server.unpause()
+            elif action == "suspend":
+                server.suspend()
+            elif action == "resume":
+                server.resume()
+
+            while not action_done and time.time() - action_start < time_limit:
+                if returnServerStatus(server) == expected_state:
+                    action_done = True
+                else:
+                    time.sleep(3)
+            print action_done and "%s successful" % action \
+                                        or "%s failed" % action
+            return action_done, action_done and '' or \
+                        "Server not %s within %d sec" % (action, time_limit)
         except Exception as except_msg:
             return False, except_msg
 
@@ -201,74 +204,88 @@ def startServer():
         except Execrption as except_msg:
             return False, except_msg
 
+    def destroyInstance(server):
+        destroy_time = 60
+        is_del = False
+        start = time.time()
+
+        server.delete()
+        while not is_del and time.time() - start < destroy_time:
+            if not any([s.id == server.id for s in novaobject.servers.list()]):
+                is_del = True
+                print "Server destroyed"
+            else:
+                time.sleep(1)
+        return is_del, is_del and '' or \
+                    "Server not destroyed within %d sec" % (destroy_time)
+
     perfect = 1
     start_worked, start_return = bootRandomInstance()
     if start_worked:
-        if not start_worked:
-            print start_return
+        server = start_return
+        boot_worked, boot_return = checkBooted(server)
+        if not boot_worked:
+            print 'Server boot failed: %s' % boot_return
             perfect = 0
-        pause_worked, pause_return = pauseInstance(start_return)
+        pause_worked, pause_return = actions('pause', 'PAUSED', server)
         if not pause_worked:
-            print pause_return
+            print 'Server pause failed: %s' % pause_return
             perfect = 0
-        unpause_worked, unpause_return = unpauseInstance(start_return)
+        unpause_worked, unpause_return = actions('unpause', 'ACTIVE', server)
         if not unpause_worked:
-            print unpause_return
+            print 'Server unpause failed: %s' % unpause_return
             perfect = 0
-        suspend_worked, suspend_return = suspendInstance(start_return)
-        if not suspend_worked:
-            print suspend_return
+        sus_worked, sus_return = actions('suspend', 'SUSPENDED', server)
+        if not sus_worked:
+            print 'Server suspend failed: %s' % sus_return
             perfect = 0
-        resume_worked, resume_return = resumeInstance(start_return)
+        resume_worked, resume_return = actions('resume', 'ACTIVE', server)
         if not resume_worked:
-            print resume_return
+            print 'Server resume failed: %s' % resume_return
+            perfect = 0
+        destroy_worked, destroy_return = destroyInstance(start_return)
+        if not destroy_worked:
+            print 'Server destroy failed: %s' % destroy_return
             perfect = 0
     else:
-        print start_return
+        print 'Server start failed: %s' % start_return
         perfect = 0
-        if start_return == "This request was rate-limited. (HTTP 413)":
-            print "Rate limited, sleeping for 10 seconds"
-            time.sleep(10)
     if perfect == 0:
-        return False, "Something went wrong with something"
+        if start_return == "This request was rate-limited. (HTTP 413)":
+            print "Rate limited, sleeping for 10 seconds then will try again"
+            time.sleep(10)
+            runServerThroughTests()
+        else:
+            return False, "Something went wrong with something"
     else:
         return True, "Seems to have ran through all operations smoothly"
 
 
-delete_servers = False
-config_name = "Ben"
-
-if len(sys.argv) >= 2:
-    config_name = sys.argv[1]
-    while config_name not in ['Admin', 'Ben', 'Delete']:
-        print "Admin or Ben are the options"
-        config_name = raw_input().strip()
-    if config_name == 'Delete':
-        delete_servers = True
-        config_name = "Ben"
-
-if len(sys.argv) >= 3:
+if __name__ == '__main__':
     try:
-        number_of_runs = int(sys.argv[2])
+        import config
     except:
-        number_of_runs = 10
-else:
-    number_of_runs = 10
+        print "unable to import defaults"
 
-Config = ConfigParser.ConfigParser()
-Config.read('config.ini')
-novaconfig = ConfigSectionMap(config_name)
-novaobject = client.Client(novaconfig['nova_username'],
-                                        novaconfig['nova_password'],
-                                        novaconfig['nova_project_id'],
-                                        novaconfig['nova_url'])
+    if len(sys.argv) >= 2:
+        tenant = sys.argv[1]
+    else:
+        tenant = 'admin'
 
-if delete_servers:
-    shutdownInstances()
-    print "All servers deleted, hit enter to continue"
-    raw_input()
+    if len(sys.argv) >= 3:
+        user = sys.argv[2]
+    else:
+        user = tenant
 
-for x in range(number_of_runs):
-    print "Server: %d" % x
-    worked, return_value = startServer()
-    print return_value
+    if len(sys.argv) >= 4:
+        password = sys.argv[3]
+    else:
+        password = config.users[user]
+
+    if len(sys.argv) >= 5:
+        auth_url = "http://%s:5000/v2.0/" % sys.argv[4]
+    else:
+        auth_url = "http://%s:5000/v2.0/" % config.master
+
+    novaobject = returnNovaObject(auth_url, tenant, user, password)
+    runServerThroughTests()
