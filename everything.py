@@ -220,36 +220,46 @@ def runServerThroughTests():
                     "Server not destroyed within %d sec" % (destroy_time)
 
     perfect = 1
+
     start_worked, start_return = bootRandomInstance()
+
     if start_worked:
         server = start_return
+
         boot_worked, boot_return = checkBooted(server)
         if not boot_worked:
             print 'Server boot failed: %s' % boot_return
             perfect = 0
+
         pause_worked, pause_return = actions('pause', 'PAUSED', server)
         if not pause_worked:
             print 'Server pause failed: %s' % pause_return
             perfect = 0
+
         unpause_worked, unpause_return = actions('unpause', 'ACTIVE', server)
         if not unpause_worked:
             print 'Server unpause failed: %s' % unpause_return
             perfect = 0
+
         sus_worked, sus_return = actions('suspend', 'SUSPENDED', server)
         if not sus_worked:
             print 'Server suspend failed: %s' % sus_return
             perfect = 0
+
         resume_worked, resume_return = actions('resume', 'ACTIVE', server)
         if not resume_worked:
             print 'Server resume failed: %s' % resume_return
             perfect = 0
+
         destroy_worked, destroy_return = destroyInstance(start_return)
         if not destroy_worked:
             print 'Server destroy failed: %s' % destroy_return
             perfect = 0
+
     else:
         print 'Server start failed: %s' % start_return
         perfect = 0
+
     if perfect == 0:
         if start_return == "This request was rate-limited. (HTTP 413)":
             print "Rate limited, sleeping for 10 seconds then will try again"
@@ -257,6 +267,7 @@ def runServerThroughTests():
             runServerThroughTests()
         else:
             return False, "Something went wrong with something"
+
     else:
         return True, "Seems to have ran through all operations smoothly"
 
