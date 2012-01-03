@@ -20,19 +20,6 @@ def get_image(image_name):
             return i
 
 
-def returnServerStatus(server):
-    try:
-        server.get()
-        status = server.status
-    except Exception as except_msg:
-        if except_msg == 'This request was rate-limited. (HTTP 413)':
-            print "Rate limited: Waiting 5 seconds"
-            time.sleep(5)
-            return returnServerStatus(server)
-    else:
-        return status
-
-
 def returnRandom(whatToRandomize, idonly=0, max_cores=8):
     def randomize(list):
         return list[(random.randint(0, len(list) - 1))]
@@ -73,13 +60,10 @@ def returnOpen(what_to_return, idonly=0):
                 return floating_ip
 
         try:
-            quota_ips = int(novaobject.quotas.get(
-                               novaconfig['os_auth_tenant']).floating_ips)
+            quota_ips = int(novaobject.quotas.get(tenant).floating_ips)
             if (len(novaobject.floating_ips.list()) < quota_ips):
                 if idonly == 1:
-                    print "creating ip"
                     return novaobject.floating_ips.create().ip
-                    print "past creating ip"
                 else:
                     return novaobject.floating_ips.create()
 
@@ -121,18 +105,33 @@ def shutdownInstances():
 
 def runServerThroughTests():
 
+    def returnServerStatus(server):
+        try:
+            server.get()
+            status = server.status
+        except Exception as except_msg:
+            if except_msg == 'This request was rate-limited. (HTTP 413)':
+                print "Rate limited: Waiting 5 seconds"
+                time.sleep(5)
+                return returnServerStatus(server)
+        else:
+            return status
+
     def bootRandomInstance():
         try:
             randomName = "test-%d-%d" % (time.time(), random.randint(0, 99999))
             image = get_image('oneiric-server-cloudimg-amd64')
             assert image, "No image found"
-            print image
+            
             novaobject.servers.create(
                         image=image,
                         flavor=returnRandom('flavor', 1, max_cores=4),
                         name=randomName)
-            print "Started server %s" % randomName
+            print "Server %s" % randomName
+            print "Started server"
+            
             server = getServerObjectFromName(randomName)
+            
             if server:
                 while len(server.networks) == 0:
                     time.sleep(3)
@@ -140,7 +139,7 @@ def runServerThroughTests():
                 floating_ip = returnOpen('floating_ip', 1)
                 if floating_ip:
                     server.add_floating_ip(floating_ip)
-                    print "Added floating ip"
+                    print "Added floating ip %s" % floating_ip
             server.get()
             return True, server
         except Exception as except_msg:
@@ -190,10 +189,9 @@ def runServerThroughTests():
                     action_done = True
                 else:
                     time.sleep(3)
-            print action_done and "%s successful" % action \
-                                        or "%s failed" % action
+            print action_done and "%s successful" % action.capitalize()
             return action_done, action_done and '' or \
-                        "Server not %s within %d sec" % (action, time_limit)
+                    "Server not %s within %d sec" % (action, time_limit)
         except Exception as except_msg:
             return False, except_msg
 
@@ -246,10 +244,11 @@ def runServerThroughTests():
             print 'Server suspend failed: %s' % sus_return
             perfect = 0
 
-        resume_worked, resume_return = actions('resume', 'ACTIVE', server)
-        if not resume_worked:
-            print 'Server resume failed: %s' % resume_return
-            perfect = 0
+        if sus_worked:
+            resume_worked, resume_return = actions('resume', 'ACTIVE', server)
+            if not resume_worked:
+                print 'Server resume failed: %s' % resume_return
+                perfect = 0
 
         destroy_worked, destroy_return = destroyInstance(start_return)
         if not destroy_worked:
