@@ -7,7 +7,6 @@ import sys
 import time
 from novaclient.v1_1 import client
 
-rate_limit_sleep_time = 10
 floating_ips_max_check = 10
 nc = False
 
