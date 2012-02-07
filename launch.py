@@ -201,16 +201,19 @@ def launch(auth_url, tenant, user, password, destroy_time=60, boot_time=60):
         else:
             time.sleep(1)
 
-    #clean up.  remove keys local and for nova
     os.system('rm %s*' % local_key)
     nova_key.delete()
 
-    if not booted and not is_del:
-        print "Server %s not booted within %d sec" % (name, boot_time)
-    assert is_del, "Server %s not deleted within %d sec" % (name, destroy_time)
-    assert booted, "Server %s not booted within %d sec" % (name, boot_time)
-    assert floating_ip, "Could not get floating ip"
-    assert ping_worked, "Pinging test had 100% loss on one of the pingees"
+    if not booted or not is_del or not floating_ip or not ping_worked:
+        if not is_del:
+            print "Server %s not deleted within %d sec" % (name, destroy_time)
+        if not booted:
+            print "Server %s not booted within %d sec" % (name, boot_time)
+        if not floating_ip:
+            print "Could not get floating ip"
+        if not ping_worked:
+            print "Pinging test had 100% loss on one of the pingees"
+        assert False, "See previous messages for what went wrong."
 
 if __name__ == '__main__':
     try:
